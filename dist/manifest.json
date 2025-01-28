@@ -1,0 +1,11 @@
+{
+	"id": "hackmd-share",
+	"name": "hackmd-share",
+	"version": "1.2.0",
+	"minAppVersion": "0.15.0",
+	"description": "哇哈哈哈哈哈!",
+	"author": "jx06T",
+	"authorUrl": "https://github.com/jx06T",
+	"fundingUrl": "https://github.com/jx06T",
+	"isDesktopOnly": false
+}

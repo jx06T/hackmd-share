@@ -1,13 +1,16 @@
 import { parseYaml, stringifyYaml, App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, RequestUrlParam, RequestUrlResponse } from 'obsidian';
-import { share } from 'sharer';
-// 記得重命名這些類和接口！
+import { shareNote, getNote, updataNote } from 'sharer';
 
 interface hackmdPluginSettings {
 	apiToken: string;
-}
+	commentPermission: string;
+	readPermission: string;
 
+}
 const DEFAULT_SETTINGS: hackmdPluginSettings = {
-	apiToken: 'None'
+	apiToken: 'None',
+	commentPermission: 'guest',
+	readPermission: 'guest',
 }
 
 export default class hackmdPlugin extends Plugin {
@@ -16,68 +19,25 @@ export default class hackmdPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		// 這會添加一個編輯器命令，可以對當前編輯器實例執行一些操作
-		this.addCommand({
-			id: 'hackmd-share',
-			name: 'Share article by HackMD',
-
-			editorCallback: async (editor: Editor, view: MarkdownView) => {
-				// 讀取整個檔案的文字
-				const fileContent = editor.getValue();
-				const title = "# " + view.file?.basename + "\n";
-				const content = title + fileContent
-				share(this.settings.apiToken, content, "owner").then((response: RequestUrlResponse) => {
-					console.log(JSON.stringify(response.json));
-
-					const link = response.json.publishLink
-					const message = `Note shared successfully!`;
-					const btn = new Notice(message, 10000).noticeEl;
-					btn.addEventListener('click', () => {
-						window.open(link, '_blank');
-					})
-					navigator.clipboard.writeText(link)
-					// editor.setValue(`HackMD Link: [${link}](${link})\n\n` + editor.getValue());
-					addLinkToYaml(editor, "shared link", link)
-
-				}).catch((error) => {
-					console.log(error);
-				});
-			}
-		});
-
 		this.addCommand({
 			id: 'share',
 			name: 'Share article',
-			callback: () => {
-
-				new PopWindows(this.app, this.settings.apiToken).open();
-			},
-		});
-
-		this.addCommand({
-			id: 'hackmd-share_E',
-			name: 'Share article by HackMD-guest can edit',
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
-				const fileContent = editor.getValue();
-				const title = "# " + view.file?.basename + "\n";
-				const content = title + fileContent
 
-				share(this.settings.apiToken, content, "guest").then((response: RequestUrlResponse) => {
-					const link = response.json.publishLink
-					const message = `Note shared successfully!`;
-					const btn = new Notice(message, 10000).noticeEl;
-					btn.addEventListener('click', () => {
-						window.open(link, '_blank');
-					})
-					navigator.clipboard.writeText(link)
-					addLinkToYaml(editor, "editable shared link", link)
+				const curContent = editor.getValue();
+				const yamlRegex = /^---\n([\s\S]*?)\n---/;
+				const match = curContent.match(yamlRegex);
 
-				}).catch((error) => {
-					console.log(error);
-				});
+				if (match) {
+					const yamlContent = match[1];
+					const yamlData = parseYaml(yamlContent);
+
+					new PopWindows(this.app, this.settings, editor, view, yamlData).open();
+					return
+				}
+				new PopWindows(this.app, this.settings, editor, view, {}).open();
 			}
 		});
-
 
 		// 這會添加一個設置選項卡，以便用戶可以配置插件的各個方面
 		this.addSettingTab(new SettingTab(this.app, this));
@@ -128,113 +88,197 @@ function addLinkToYaml(editor: Editor, key: string, link: string) {
 
 class PopWindows extends Modal {
 	token: string;
+	currId: string;
+	settings: hackmdPluginSettings;
+	editor: Editor;
+	view: MarkdownView;
+	idLabel: HTMLElement;
+	previewArea: HTMLTextAreaElement;
+	yamlData: { [key: string]: string };
 
-	constructor(app: App, token: string) {
+	constructor(app: App, settings: hackmdPluginSettings, editor: Editor, view: MarkdownView, yamlData: { [key: string]: string }) {
 		super(app);
-		this.token = token
+		this.token = settings.apiToken;
+		this.editor = editor;
+		this.view = view;
+		this.yamlData = yamlData;
+		this.settings = settings;
+		this.currId = '';
+
 	}
+
+	checkNote = async (noteId: string) => {
+		if (noteId) {
+			try {
+				const response = await getNote(this.token, noteId);
+				const content = response.json.content;
+				this.previewArea.setText(content)
+				this.previewArea.value = content
+				this.idLabel.setText(noteId);
+				this.currId = noteId;
+
+			} catch (error) {
+				this.idLabel.setText('無效的 ID');
+				this.previewArea.setText('')
+				this.previewArea.value = ''
+				this.currId = '';
+				
+				new Notice(`無法獲取筆記: ${error.message}`);
+			}
+		} else {
+			this.idLabel.setText('無');
+			this.currId = "";
+			this.previewArea.value = ''
+			this.previewArea.setText('')
+		}
+	}
+
+	createDropdown = async (dropdownContainer: HTMLDivElement, labelText: string, defaultValue: string, options: string[]) => {
+		const noteId = this.yamlData[`hackmd-id-owner`];
+		await this.checkNote(noteId)
+
+		const wrapper = dropdownContainer.createEl('div', { cls: 'dropdown-wrapper' });
+
+		wrapper.createEl('label', { text: labelText, cls: 'dropdown-label' });
+
+		const customSelect = wrapper.createEl('div', { cls: 'custom-select' });
+
+		const selectedDisplay = customSelect.createEl('div', {
+			cls: 'selected-option',
+			text: defaultValue
+		});
+
+		const optionsList = customSelect.createEl('div', { cls: 'options-list' });
+
+		let selectedValue = defaultValue;
+
+		options.forEach(option => {
+			const optionEl = optionsList.createEl('div', {
+				cls: 'option',
+				text: option
+			});
+
+			optionEl.addEventListener('click', async () => {
+				selectedDisplay.setText(option);
+				optionsList.classList.remove('show');
+				selectedValue = option;
+
+				const noteId = this.yamlData[`hackmd-id-${option}`];
+				await this.checkNote(noteId)
+			});
+		});
+
+		selectedDisplay.addEventListener('click', (e) => {
+			e.stopPropagation();
+			// 關閉其他打開的下拉選單
+			document.querySelectorAll('.options-list.show').forEach(list => {
+				if (list !== optionsList) {
+					list.classList.remove('show');
+				}
+			});
+			optionsList.classList.toggle('show');
+		});
+
+		return () => selectedValue; // 返回一個函數用來獲取選中的值
+	};
 
 	onOpen() {
 		const { contentEl } = this;
-
 		this.titleEl.setText('分享設定');
 
 		const dropdownContainer = contentEl.createEl('div', { cls: 'dropdown-container' });
+		dropdownContainer.createEl('label', { text: "前次分享 id ：", cls: 'id-a' });
+		this.idLabel = dropdownContainer.createEl('label', {
+			text: '無',
+			cls: 'id-a id-s'
+		});
+		this.previewArea = dropdownContainer.createEl('textarea', { cls: "preview-area", attr: { rows: "10" } });
 
-		// 建立一個函數來創建下拉選單，避免重複代碼
-		const createDropdown = (labelText: string, defaultValue: string, options: string[]) => {
-			const wrapper = dropdownContainer.createEl('div', { cls: 'dropdown-wrapper' });
-
-			wrapper.createEl('label', { text: labelText, cls: 'dropdown-label' });
-
-			const customSelect = wrapper.createEl('div', { cls: 'custom-select' });
-
-			const selectedDisplay = customSelect.createEl('div', {
-				cls: 'selected-option',
-				text: defaultValue
-			});
-
-			const optionsList = customSelect.createEl('div', { cls: 'options-list' });
-
-			let selectedValue = defaultValue;
-
-			options.forEach(option => {
-				const optionEl = optionsList.createEl('div', {
-					cls: 'option',
-					text: option
-				});
-
-				optionEl.addEventListener('click', () => {
-					selectedDisplay.setText(option);
-					optionsList.classList.remove('show');
-					selectedValue = option;
-				});
-			});
-
-			selectedDisplay.addEventListener('click', (e) => {
-				e.stopPropagation();
-				// 關閉其他打開的下拉選單
-				document.querySelectorAll('.options-list.show').forEach(list => {
-					if (list !== optionsList) {
-						list.classList.remove('show');
-					}
-				});
-				optionsList.classList.toggle('show');
-			});
-
-			return () => selectedValue; // 返回一個函數用來獲取選中的值
-		};
 
 		// 創建三個下拉選單
-		const getEditValue = createDropdown('編輯權限：', 'owner', ['owner', 'signed_in', 'guest']);
-		const getViewValue = createDropdown('檢視權限：', 'guest', ['owner', 'signed_in', 'guest']);
-		const getCommentValue = createDropdown('評論權限：', 'guest', ['disabled', 'forbidden', 'owners', 'signed_in_users', 'everyone']);
-
-		// 點擊外部關閉所有下拉選單
-		document.addEventListener('click', () => {
-			document.querySelectorAll('.options-list').forEach(list => {
-				list.classList.remove('show');
-			});
-		});
+		const getEditValue = this.createDropdown(dropdownContainer, '編輯權限 ：', 'owner', ['owner', 'signed_in', 'guest']);
 
 		new Setting(contentEl)
 			.addButton((btn) =>
 				btn
-					.setButtonText('Share')
+					.setButtonText('Push')
 					.setCta()
-					.onClick(() => {
-						const editValue = getEditValue();
-						const viewValue = getViewValue();
-						const commentValue = getCommentValue();
+					.onClick(async () => {
+						const writePermission = (await getEditValue)();
 
-						new Notice(`設定已更新：\n編輯權限：${editValue}\n檢視權限：${viewValue}\n評論權限：${commentValue}`);
-						editorCallback: async (editor: Editor, view: MarkdownView) => {
-							const fileContent = editor.getValue();
-							const title = "# " + view.file?.basename + "\n";
-							const content = title + fileContent
 
-							share(this.token, content, "guest").then((response: RequestUrlResponse) => {
-								const link = response.json.publishLink
+						// 直接執行分享邏輯
+						const fileContent = this.editor.getValue();
+						const title = "# " + this.view.file?.basename + "\n";
+						const contentWithoutYaml = fileContent.replace(/^---\n[\s\S]*?\n---\n/, '');
+						const content = title + contentWithoutYaml;
+
+						if (this.currId) {
+
+							try {
+								const response = await updataNote(this.token, content, this.currId);
+								const message = `Note shared（Updata） successfully!`;
+								new Notice(message, 10000).noticeEl;
+
+							} catch (error) {
+								console.log(error);
+								new Notice('Push（Updata）failed: ' + error.message);
+							}
+
+						} else {
+							try {
+								const response = await shareNote(this.token, content, { writePermission, readPermission: this.settings.readPermission, commentPermission: this.settings.commentPermission });
+
+								const link = response.json.publishLink;
+								const id = response.json.id;
+
 								const message = `Note shared successfully!`;
 								const btn = new Notice(message, 10000).noticeEl;
+
 								btn.addEventListener('click', () => {
 									window.open(link, '_blank');
-								})
-								navigator.clipboard.writeText(link)
-								addLinkToYaml(editor, "editable shared link", link)
+								});
 
-							}).catch((error) => {
+								await navigator.clipboard.writeText(link);
+								addLinkToYaml(this.editor, "hackmd-link-" + writePermission, link);
+								addLinkToYaml(this.editor, "hackmd-id-" + writePermission, id);
+							} catch (error) {
 								console.log(error);
-							});
+								new Notice('Push failed: ' + error.message);
+							}
 						}
 
 						this.close();
 					}));
+
+		new Setting(contentEl)
+			.addButton((btn) =>
+				btn
+					.setButtonText('Pull')
+					.setCta()
+					.onClick(async () => {
+						if (!this.currId) {
+							new Notice("No online version");
+							return
+						}
+
+						const fileContent = this.editor.getValue();
+						const match = fileContent.match(/^(---\n[\s\S]*?\n---)/);
+						const yaml = match ? match[1] + "\n" : "";
+						const content = yaml + this.previewArea.value;
+
+						this.editor.setValue(content)
+						const message = `Pull successfully`;
+						new Notice(message, 10000).noticeEl;
+
+						this.close();
+					}));
+
 	}
 
 	onClose() {
 		const { contentEl } = this;
-		contentEl.empty(); // 清空內容
+		contentEl.empty();
 	}
 }
 
@@ -259,5 +303,37 @@ class SettingTab extends PluginSettingTab {
 					this.plugin.settings.apiToken = value;
 					await this.plugin.saveSettings();
 				}));
+		new Setting(containerEl)
+			.setName('commentPermission')
+			.setDesc('評論設定')
+			.addDropdown(dropdown =>
+				dropdown
+					.addOptions({
+						'disabled': '關閉',
+						'forbidden': '禁用',
+						'owner': '僅擁有者',
+						'signed_in': '登入用戶',
+						'guest': '訪客'
+					})
+					.setValue(this.plugin.settings.commentPermission || 'guest') // 設定預設值
+					.onChange(async (value) => {
+						this.plugin.settings.commentPermission = value; // 更新選項值
+						await this.plugin.saveSettings(); // 儲存設定
+					}));
+		new Setting(containerEl)
+			.setName('readPermission')
+			.setDesc('檢視設定')
+			.addDropdown(dropdown =>
+				dropdown
+					.addOptions({
+						'owner': '僅擁有者',
+						'signed_in': '登入用戶',
+						'guest': '訪客'
+					})
+					.setValue(this.plugin.settings.commentPermission || 'guest') // 設定預設值
+					.onChange(async (value) => {
+						this.plugin.settings.commentPermission = value; // 更新選項值
+						await this.plugin.saveSettings(); // 儲存設定
+					}));
 	}
 }
