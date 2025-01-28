@@ -1,4 +1,4 @@
-import {  parseYaml, stringifyYaml ,App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, RequestUrlParam, RequestUrlResponse } from 'obsidian';
+import { parseYaml, stringifyYaml, App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, RequestUrlParam, RequestUrlResponse } from 'obsidian';
 import { share } from 'sharer';
 // 記得重命名這些類和接口！
 
@@ -9,6 +9,7 @@ interface hackmdPluginSettings {
 const DEFAULT_SETTINGS: hackmdPluginSettings = {
 	apiToken: 'None'
 }
+
 export default class hackmdPlugin extends Plugin {
 	settings: hackmdPluginSettings;
 
@@ -19,6 +20,7 @@ export default class hackmdPlugin extends Plugin {
 		this.addCommand({
 			id: 'hackmd-share',
 			name: 'Share article by HackMD',
+
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
 				// 讀取整個檔案的文字
 				const fileContent = editor.getValue();
@@ -35,13 +37,23 @@ export default class hackmdPlugin extends Plugin {
 					})
 					navigator.clipboard.writeText(link)
 					// editor.setValue(`HackMD Link: [${link}](${link})\n\n` + editor.getValue());
-					this.addLinkToYaml(editor,"shared link",link)
+					addLinkToYaml(editor, "shared link", link)
 
 				}).catch((error) => {
 					console.log(error);
 				});
 			}
 		});
+
+		this.addCommand({
+			id: 'share',
+			name: 'Share article',
+			callback: () => {
+
+				new PopWindows(this.app, this.settings.apiToken).open();
+			},
+		});
+
 		this.addCommand({
 			id: 'hackmd-share_E',
 			name: 'Share article by HackMD-guest can edit',
@@ -58,13 +70,15 @@ export default class hackmdPlugin extends Plugin {
 						window.open(link, '_blank');
 					})
 					navigator.clipboard.writeText(link)
-					this.addLinkToYaml(editor,"editable shared link",link)
-					
+					addLinkToYaml(editor, "editable shared link", link)
+
 				}).catch((error) => {
 					console.log(error);
 				});
 			}
 		});
+
+
 		// 這會添加一個設置選項卡，以便用戶可以配置插件的各個方面
 		this.addSettingTab(new SettingTab(this.app, this));
 
@@ -73,7 +87,6 @@ export default class hackmdPlugin extends Plugin {
 		// this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
 		// 	console.log('click禁用', evt);
 		// });
-
 	}
 
 	onunload() {
@@ -88,27 +101,140 @@ export default class hackmdPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	addLinkToYaml(editor: Editor, key : string,link: string) {
-		const content = editor.getValue();
-		const yamlRegex = /^---\n([\s\S]*?)\n---/;
-		let newContent;
+}
 
-		if (yamlRegex.test(content)) {
-			newContent = content.replace(yamlRegex, (match, p1) => {
-				const yamlData = parseYaml(p1) || {};
-				yamlData[key] = link;
-				const newYaml = stringifyYaml(yamlData).trim();
-				return `---\n${newYaml}\n---`;
-			});
-		} else {
-			const yamlData = {
-				[key]: link
-			};
+function addLinkToYaml(editor: Editor, key: string, link: string) {
+	const content = editor.getValue();
+	const yamlRegex = /^---\n([\s\S]*?)\n---/;
+	let newContent;
+
+	if (yamlRegex.test(content)) {
+		newContent = content.replace(yamlRegex, (match, p1) => {
+			const yamlData = parseYaml(p1) || {};
+			yamlData[key] = link;
 			const newYaml = stringifyYaml(yamlData).trim();
-			newContent = `---\n${newYaml}\n---\n\n` + content;
-		}
+			return `---\n${newYaml}\n---`;
+		});
+	} else {
+		const yamlData = {
+			[key]: link
+		};
+		const newYaml = stringifyYaml(yamlData).trim();
+		newContent = `---\n${newYaml}\n---\n\n` + content;
+	}
 
-		editor.setValue(newContent);
+	editor.setValue(newContent);
+}
+
+class PopWindows extends Modal {
+	token: string;
+
+	constructor(app: App, token: string) {
+		super(app);
+		this.token = token
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+
+		this.titleEl.setText('分享設定');
+
+		const dropdownContainer = contentEl.createEl('div', { cls: 'dropdown-container' });
+
+		// 建立一個函數來創建下拉選單，避免重複代碼
+		const createDropdown = (labelText: string, defaultValue: string, options: string[]) => {
+			const wrapper = dropdownContainer.createEl('div', { cls: 'dropdown-wrapper' });
+
+			wrapper.createEl('label', { text: labelText, cls: 'dropdown-label' });
+
+			const customSelect = wrapper.createEl('div', { cls: 'custom-select' });
+
+			const selectedDisplay = customSelect.createEl('div', {
+				cls: 'selected-option',
+				text: defaultValue
+			});
+
+			const optionsList = customSelect.createEl('div', { cls: 'options-list' });
+
+			let selectedValue = defaultValue;
+
+			options.forEach(option => {
+				const optionEl = optionsList.createEl('div', {
+					cls: 'option',
+					text: option
+				});
+
+				optionEl.addEventListener('click', () => {
+					selectedDisplay.setText(option);
+					optionsList.classList.remove('show');
+					selectedValue = option;
+				});
+			});
+
+			selectedDisplay.addEventListener('click', (e) => {
+				e.stopPropagation();
+				// 關閉其他打開的下拉選單
+				document.querySelectorAll('.options-list.show').forEach(list => {
+					if (list !== optionsList) {
+						list.classList.remove('show');
+					}
+				});
+				optionsList.classList.toggle('show');
+			});
+
+			return () => selectedValue; // 返回一個函數用來獲取選中的值
+		};
+
+		// 創建三個下拉選單
+		const getEditValue = createDropdown('編輯權限：', 'owner', ['owner', 'signed_in', 'guest']);
+		const getViewValue = createDropdown('檢視權限：', 'guest', ['owner', 'signed_in', 'guest']);
+		const getCommentValue = createDropdown('評論權限：', 'guest', ['disabled', 'forbidden', 'owners', 'signed_in_users', 'everyone']);
+
+		// 點擊外部關閉所有下拉選單
+		document.addEventListener('click', () => {
+			document.querySelectorAll('.options-list').forEach(list => {
+				list.classList.remove('show');
+			});
+		});
+
+		new Setting(contentEl)
+			.addButton((btn) =>
+				btn
+					.setButtonText('Share')
+					.setCta()
+					.onClick(() => {
+						const editValue = getEditValue();
+						const viewValue = getViewValue();
+						const commentValue = getCommentValue();
+
+						new Notice(`設定已更新：\n編輯權限：${editValue}\n檢視權限：${viewValue}\n評論權限：${commentValue}`);
+						editorCallback: async (editor: Editor, view: MarkdownView) => {
+							const fileContent = editor.getValue();
+							const title = "# " + view.file?.basename + "\n";
+							const content = title + fileContent
+
+							share(this.token, content, "guest").then((response: RequestUrlResponse) => {
+								const link = response.json.publishLink
+								const message = `Note shared successfully!`;
+								const btn = new Notice(message, 10000).noticeEl;
+								btn.addEventListener('click', () => {
+									window.open(link, '_blank');
+								})
+								navigator.clipboard.writeText(link)
+								addLinkToYaml(editor, "editable shared link", link)
+
+							}).catch((error) => {
+								console.log(error);
+							});
+						}
+
+						this.close();
+					}));
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty(); // 清空內容
 	}
 }
 
