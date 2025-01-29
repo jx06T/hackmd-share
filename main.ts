@@ -345,7 +345,7 @@ class PopWindows extends Modal {
 		// pull
 		new Setting(contentEl)
 			.setName('合併')
-			.setDesc('透過上方預覽框修改後按下 Pull 會覆蓋本地文件')
+			.setDesc('透過上方預覽框修改後按下 Pull 會合併至本地文件並保留合併衝突')
 			.addButton((btn) =>
 				btn
 					.setButtonText('Pull')
@@ -365,8 +365,34 @@ class PopWindows extends Modal {
 
 						const content = generateMergeConflictFile(oldContentWithoutYaml, newContent)
 
-						console.log(content)
 						this.editor.setValue(yaml + content)
+						const message = `Pull successfully`;
+						new Notice(message, 10000).noticeEl;
+
+						this.close();
+					}));
+
+		// pull-f
+		new Setting(contentEl)
+			.setName('強制合併')
+			.setDesc('透過上方預覽框修改後按下 Pull 會強制覆蓋本地文件')
+			.addButton((btn) =>
+				btn
+					.setButtonText('Pull')
+					.setCta()
+					.onClick(async () => {
+						if (!this.currId) {
+							new Notice("No online version");
+							return
+						}
+
+						const oldContent = this.editor.getValue();
+						const match = oldContent.match(/^(---\n[\s\S]*?\n---)/);
+						const yaml = match ? match[1] + "\n" : "";
+						const newContent = this.previewArea.value;
+
+						this.editor.setValue(yaml + newContent)
+
 						const message = `Pull successfully`;
 						new Notice(message, 10000).noticeEl;
 
@@ -375,7 +401,7 @@ class PopWindows extends Modal {
 
 		new Setting(contentEl)
 			.setName('拉取到新檔案')
-			.setDesc('透過上方預覽框修改後按下 Pull 會在當前目錄建立遠端版本檔案')
+			.setDesc('透過上方預覽框修改後按下 Pull 會拉取遠端版本並在當前目錄建立新檔案')
 			.addButton((btn) =>
 				btn
 					.setButtonText('Pull')
