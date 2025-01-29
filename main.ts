@@ -1,5 +1,67 @@
-import { parseYaml, stringifyYaml, App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, RequestUrlParam, RequestUrlResponse } from 'obsidian';
+import { parseYaml, stringifyYaml, App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile } from 'obsidian';
 import { shareNote, getNote, updataNote } from 'sharer';
+import { diffLines, Change } from 'diff';
+
+function generateMergeConflictFile(text1: string, text2: string): string {
+	// 使用 diffLines 直接比較兩段文本
+	const differences: Change[] = diffLines(text1, text2);
+	const result: string[] = [];
+
+	let inConflict = false;
+	let conflictBlock: {
+		original: string[];
+		modified: string[];
+	} = {
+		original: [],
+		modified: []
+	};
+
+	// 處理每一個差異塊
+	differences.forEach((part: Change) => {
+		if (part.added || part.removed) {
+			if (!inConflict) {
+				inConflict = true;
+			}
+
+			// 移除尾部的換行符來防止多餘的空行
+			const lines: string[] = part.value.replace(/\n$/, '').split('\n');
+
+			if (part.removed) {
+				conflictBlock.original.push(...lines);
+			} else if (part.added) {
+				conflictBlock.modified.push(...lines);
+			}
+		} else {
+			// 如果之前有衝突塊，先輸出衝突
+			if (inConflict) {
+				if (conflictBlock.original.length > 0 || conflictBlock.modified.length > 0) {
+					result.push('/<<<<<<< HEAD');
+					result.push(...conflictBlock.original);
+					result.push('/=======');
+					result.push(...conflictBlock.modified);
+					result.push('/>>>>>>>');
+				}
+				inConflict = false;
+				conflictBlock = { original: [], modified: [] };
+			}
+
+			// 添加未修改的內容
+			const unchangedLines: string[] = part.value.replace(/\n$/, '').split('\n');
+			result.push(...unchangedLines);
+		}
+	});
+
+	// 處理最後可能存在的衝突塊
+	if (inConflict && (conflictBlock.original.length > 0 || conflictBlock.modified.length > 0)) {
+		result.push('<<<<<<< HEAD');
+		result.push(...conflictBlock.original);
+		result.push('=======');
+		result.push(...conflictBlock.modified);
+		result.push('>>>>>>>');
+	}
+
+	return result.join('\n');
+}
 
 interface hackmdPluginSettings {
 	apiToken: string;
@@ -63,27 +125,59 @@ export default class hackmdPlugin extends Plugin {
 
 }
 
-function addLinkToYaml(editor: Editor, key: string, link: string) {
-	const content = editor.getValue();
+function updateYamlContent(content: string, updates: Record<string, any>): string {
 	const yamlRegex = /^---\n([\s\S]*?)\n---/;
-	let newContent;
 
 	if (yamlRegex.test(content)) {
-		newContent = content.replace(yamlRegex, (match, p1) => {
+		return content.replace(yamlRegex, (match, p1) => {
 			const yamlData = parseYaml(p1) || {};
-			yamlData[key] = link;
+			Object.assign(yamlData, updates);
 			const newYaml = stringifyYaml(yamlData).trim();
 			return `---\n${newYaml}\n---`;
 		});
 	} else {
-		const yamlData = {
-			[key]: link
-		};
-		const newYaml = stringifyYaml(yamlData).trim();
-		newContent = `---\n${newYaml}\n---\n\n` + content;
+		const newYaml = stringifyYaml(updates).trim();
+		return `---\n${newYaml}\n---\n\n${content}`;
 	}
+}
 
+function updateEditorYaml(editor: Editor, updates: Record<string, any>): void {
+	const content = editor.getValue();
+	const newContent = updateYamlContent(content, updates);
 	editor.setValue(newContent);
+}
+
+async function createRemoteVersionFile(
+	app: any,
+	folderPath: string,
+	originalFileName: string,
+	content: string,
+	remoteInfo: {
+		permission: string;
+		pullTime: string;
+	}
+): Promise<TFile | null> {
+	try {
+		// 生成新檔名，包含遠端版本信息
+		const fileExtension = originalFileName.split('.').pop();
+		const baseName = originalFileName.replace(`.${fileExtension}`, '');
+		const newFileName = `${baseName}-${remoteInfo.permission}.${fileExtension}`;
+		const fullPath = `${folderPath}/${newFileName}`;
+
+		// 添加 YAML front matter
+		const yamlUpdates = {
+			remote_permission: remoteInfo.permission,
+			pull_time: remoteInfo.pullTime,
+		};
+		const contentWithYaml = updateYamlContent(content, yamlUpdates);
+
+		// 創建新檔案
+		const file = await app.vault.create(fullPath, contentWithYaml);
+		return file;
+	} catch (error) {
+		new Notice(`Failed to create remote version file: ${error.message}`);
+		return null;
+	}
 }
 
 class PopWindows extends Modal {
@@ -122,7 +216,7 @@ class PopWindows extends Modal {
 				this.previewArea.setText('')
 				this.previewArea.value = ''
 				this.currId = '';
-				
+
 				new Notice(`無法獲取筆記: ${error.message}`);
 			}
 		} else {
@@ -138,20 +232,16 @@ class PopWindows extends Modal {
 		await this.checkNote(noteId)
 
 		const wrapper = dropdownContainer.createEl('div', { cls: 'dropdown-wrapper' });
-
 		wrapper.createEl('label', { text: labelText, cls: 'dropdown-label' });
 
 		const customSelect = wrapper.createEl('div', { cls: 'custom-select' });
-
 		const selectedDisplay = customSelect.createEl('div', {
 			cls: 'selected-option',
 			text: defaultValue
 		});
-
 		const optionsList = customSelect.createEl('div', { cls: 'options-list' });
 
 		let selectedValue = defaultValue;
-
 		options.forEach(option => {
 			const optionEl = optionsList.createEl('div', {
 				cls: 'option',
@@ -170,7 +260,6 @@ class PopWindows extends Modal {
 
 		selectedDisplay.addEventListener('click', (e) => {
 			e.stopPropagation();
-			// 關閉其他打開的下拉選單
 			document.querySelectorAll('.options-list.show').forEach(list => {
 				if (list !== optionsList) {
 					list.classList.remove('show');
@@ -179,7 +268,7 @@ class PopWindows extends Modal {
 			optionsList.classList.toggle('show');
 		});
 
-		return () => selectedValue; // 返回一個函數用來獲取選中的值
+		return () => selectedValue;
 	};
 
 	onOpen() {
@@ -194,11 +283,12 @@ class PopWindows extends Modal {
 		});
 		this.previewArea = dropdownContainer.createEl('textarea', { cls: "preview-area", attr: { rows: "10" } });
 
-
-		// 創建三個下拉選單
 		const getEditValue = this.createDropdown(dropdownContainer, '編輯權限 ：', 'owner', ['owner', 'signed_in', 'guest']);
 
+		// push
 		new Setting(contentEl)
+			.setName('分享')
+			.setDesc('若已經分享過則會強制覆蓋線上版本')
 			.addButton((btn) =>
 				btn
 					.setButtonText('Push')
@@ -206,8 +296,6 @@ class PopWindows extends Modal {
 					.onClick(async () => {
 						const writePermission = (await getEditValue)();
 
-
-						// 直接執行分享邏輯
 						const fileContent = this.editor.getValue();
 						const title = "# " + this.view.file?.basename + "\n";
 						const contentWithoutYaml = fileContent.replace(/^---\n[\s\S]*?\n---\n/, '');
@@ -240,8 +328,12 @@ class PopWindows extends Modal {
 								});
 
 								await navigator.clipboard.writeText(link);
-								addLinkToYaml(this.editor, "hackmd-link-" + writePermission, link);
-								addLinkToYaml(this.editor, "hackmd-id-" + writePermission, id);
+
+								updateEditorYaml(this.editor, {
+									["hackmd-link-" + writePermission]: link,
+									["hackmd-id-" + writePermission]: id
+								});
+
 							} catch (error) {
 								console.log(error);
 								new Notice('Push failed: ' + error.message);
@@ -250,8 +342,10 @@ class PopWindows extends Modal {
 
 						this.close();
 					}));
-
+		// pull
 		new Setting(contentEl)
+			.setName('合併')
+			.setDesc('透過上方預覽框修改後按下 Pull 會覆蓋本地文件')
 			.addButton((btn) =>
 				btn
 					.setButtonText('Pull')
@@ -262,18 +356,68 @@ class PopWindows extends Modal {
 							return
 						}
 
-						const fileContent = this.editor.getValue();
-						const match = fileContent.match(/^(---\n[\s\S]*?\n---)/);
+						const oldContent = this.editor.getValue();
+						const oldContentWithoutYaml = oldContent.replace(/^---\n[\s\S]*?\n---\n/, '');
+						const match = oldContent.match(/^(---\n[\s\S]*?\n---)/);
 						const yaml = match ? match[1] + "\n" : "";
-						const content = yaml + this.previewArea.value;
 
-						this.editor.setValue(content)
+						const newContent = this.previewArea.value;
+
+						const content = generateMergeConflictFile(oldContentWithoutYaml, newContent)
+
+						console.log(content)
+						this.editor.setValue(yaml + content)
 						const message = `Pull successfully`;
 						new Notice(message, 10000).noticeEl;
 
 						this.close();
 					}));
 
+		new Setting(contentEl)
+			.setName('拉取到新檔案')
+			.setDesc('透過上方預覽框修改後按下 Pull 會在當前目錄建立遠端版本檔案')
+			.addButton((btn) =>
+				btn
+					.setButtonText('Pull')
+					.setCta()
+					.onClick(async () => {
+						if (!this.currId) {
+							new Notice("No online version");
+							return;
+						}
+						const writePermission = (await getEditValue)();
+
+						const oldContent = this.editor.getValue();
+						const match = oldContent.match(/^(---\n[\s\S]*?\n---)/);
+						const yaml = match ? match[1] + "\n" : "";
+						const newContent = this.previewArea.value;
+
+						const currentFile = this.app.workspace.getActiveFile();
+						if (!currentFile) {
+							new Notice("No active file");
+							return;
+						}
+
+						const remoteInfo = {
+							permission: writePermission,
+							pullTime: new Date().toISOString().replace("T", " ").replace(/:/g, ".")
+						};
+
+						const newFile = await createRemoteVersionFile(
+							this.app,
+							currentFile.parent!.path,
+							currentFile.name,
+							yaml + newContent,
+							remoteInfo
+						);
+
+						if (newFile) {
+							new Notice(`Created remote version file: ${newFile.name}`, 5000);
+						}
+
+						this.close();
+					})
+			);
 	}
 
 	onClose() {
@@ -303,6 +447,7 @@ class SettingTab extends PluginSettingTab {
 					this.plugin.settings.apiToken = value;
 					await this.plugin.saveSettings();
 				}));
+
 		new Setting(containerEl)
 			.setName('commentPermission')
 			.setDesc('評論設定')
@@ -320,6 +465,7 @@ class SettingTab extends PluginSettingTab {
 						this.plugin.settings.commentPermission = value; // 更新選項值
 						await this.plugin.saveSettings(); // 儲存設定
 					}));
+
 		new Setting(containerEl)
 			.setName('readPermission')
 			.setDesc('檢視設定')

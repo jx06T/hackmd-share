@@ -5,6 +5,11 @@
 	height: fit-content;
 }
 
+.dropdown-wrapper{
+    margin-top: 6px;
+    margin-bottom: 6px;
+}
+
 .dropdown-label {
     /* display: block; */
     display: inline-block;
