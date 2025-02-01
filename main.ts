@@ -271,7 +271,7 @@ class PopWindows extends Modal {
 		return () => selectedValue;
 	};
 
-	onOpen() {
+	async onOpen() {
 		const { contentEl } = this;
 		this.titleEl.setText('分享設定');
 
@@ -283,7 +283,7 @@ class PopWindows extends Modal {
 		});
 		this.previewArea = dropdownContainer.createEl('textarea', { cls: "preview-area", attr: { rows: "10" } });
 
-		const getEditValue = this.createDropdown(dropdownContainer, '編輯權限 ：', 'owner', ['owner', 'signed_in', 'guest']);
+		const getEditValue = await this.createDropdown(dropdownContainer, '編輯權限 ：', 'owner', ['owner', 'signed_in', 'guest']);
 
 		// push
 		new Setting(contentEl)
@@ -294,7 +294,7 @@ class PopWindows extends Modal {
 					.setButtonText('Push')
 					.setCta()
 					.onClick(async () => {
-						const writePermission = (await getEditValue)();
+						const writePermission = getEditValue();
 
 						const fileContent = this.editor.getValue();
 						const title = "# " + this.view.file?.basename + "\n";
@@ -411,7 +411,7 @@ class PopWindows extends Modal {
 							new Notice("No online version");
 							return;
 						}
-						const writePermission = (await getEditValue)();
+						const writePermission = getEditValue();
 
 						const oldContent = this.editor.getValue();
 						const match = oldContent.match(/^(---\n[\s\S]*?\n---)/);
