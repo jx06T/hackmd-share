@@ -10,6 +10,9 @@ if you want to view the source, please visit the github repository of this plugi
 `;
 
 const prod = (process.argv[2] === "production");
+const outfile = prod
+  ? "obsidian-share-by-hackmd/main.js"  // build 模式輸出到本地 dist/
+  : "C:\\Users\\jx06t\\iCloudDrive\\iCloud~md~obsidian\\jx\\.obsidian\\plugins\\obsidian-share-by-hackmd\\main.js";  // dev 模式輸出到 Obsidian plugin 資料夾
 
 const context = await esbuild.context({
 	banner: {
@@ -37,8 +40,9 @@ const context = await esbuild.context({
 	logLevel: "info",
 	sourcemap: prod ? false : "inline",
 	treeShaking: true,
+	outfile,
 	// outfile: "D:\\Document_J\\iCloudDrive\\iCloud~md~obsidian\\jx\\.obsidian\\plugins\\obsidian-share-by-hackmd\\main.js",
-	outfile: "C:\\Users\\jx06t\\iCloudDrive\\iCloud~md~obsidian\\jx\\.obsidian\\plugins\\obsidian-share-by-hackmd\\main.js",
+	// outfile: "C:\\Users\\jx06t\\iCloudDrive\\iCloud~md~obsidian\\jx\\.obsidian\\plugins\\obsidian-share-by-hackmd\\main.js",
 	// outfile: "main.js",
 });
 

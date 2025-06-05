@@ -1,9 +1,9 @@
 {
-	"id": "hackmd-share",
-	"name": "hackmd-share",
-	"version": "1.2.0",
+	"id": "obsidian-share-by-hackmd",
+	"name": "obsidian-share-by-hackmd",
+	"version": "1.2.1",
 	"minAppVersion": "0.15.0",
-	"description": "哇哈哈哈哈哈!",
+	"description": "一個 obsidian plugin 讓使用者能透過 Hackmd 同步文件，僅需要一個免費的 Hackmd api key",
 	"author": "jx06T",
 	"authorUrl": "https://github.com/jx06T",
 	"fundingUrl": "https://github.com/jx06T",
