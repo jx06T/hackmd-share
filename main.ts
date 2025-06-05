@@ -2,66 +2,63 @@ import { parseYaml, stringifyYaml, App, Editor, MarkdownView, Modal, Notice, Plu
 import { shareNote, getNote, updataNote } from 'sharer';
 import { diffLines, Change } from 'diff';
 
+
+
 function generateMergeConflictFile(text1: string, text2: string): string {
-	// 使用 diffLines 直接比較兩段文本
 	const differences: Change[] = diffLines(text1, text2);
 	const result: string[] = [];
 
-	let inConflict = false;
-	let conflictBlock: {
-		original: string[];
-		modified: string[];
-	} = {
-		original: [],
-		modified: []
-	};
+	let pendingOriginal: string[] = [];
+	let pendingModified: string[] = [];
 
-	// 處理每一個差異塊
 	differences.forEach((part: Change) => {
-		if (part.added || part.removed) {
-			if (!inConflict) {
-				inConflict = true;
-			}
-
-			// 移除尾部的換行符來防止多餘的空行
-			const lines: string[] = part.value.replace(/\n$/, '').split('\n');
-
-			if (part.removed) {
-				conflictBlock.original.push(...lines);
-			} else if (part.added) {
-				conflictBlock.modified.push(...lines);
-			}
+		if (part.removed) {
+			// 暫存刪除的部分
+			pendingOriginal.push(...part.value.replace(/\n$/, '').split('\n'));
+		} else if (part.added) {
+			// 暫存新增的部分
+			pendingModified.push(...part.value.replace(/\n$/, '').split('\n'));
 		} else {
-			// 如果之前有衝突塊，先輸出衝突
-			if (inConflict) {
-				if (conflictBlock.original.length > 0 || conflictBlock.modified.length > 0) {
-					result.push('/<<<<<<< HEAD');
-					result.push(...conflictBlock.original);
-					result.push('/=======');
-					result.push(...conflictBlock.modified);
-					result.push('/>>>>>>>');
-				}
-				inConflict = false;
-				conflictBlock = { original: [], modified: [] };
+			// 如果兩邊都有內容，代表有衝突
+			if (pendingOriginal.length > 0 && pendingModified.length > 0) {
+				result.push('<<<<<<< HEAD');
+				result.push(...pendingOriginal);
+				result.push('=======');
+				result.push(...pendingModified);
+				result.push('>>>>>>>');
+			} else if (pendingOriginal.length > 0) {
+				// 僅刪除，視情況保留或略過
+				result.push(...pendingOriginal);
+			} else if (pendingModified.length > 0) {
+				// 僅新增，不當作衝突，直接加入
+				result.push(...pendingModified);
 			}
 
-			// 添加未修改的內容
-			const unchangedLines: string[] = part.value.replace(/\n$/, '').split('\n');
-			result.push(...unchangedLines);
+			// 清空暫存
+			pendingOriginal = [];
+			pendingModified = [];
+
+			// 加入未變更部分
+			result.push(...part.value.replace(/\n$/, '').split('\n'));
 		}
 	});
 
-	// 處理最後可能存在的衝突塊
-	if (inConflict && (conflictBlock.original.length > 0 || conflictBlock.modified.length > 0)) {
+	// 最後可能殘留的衝突處理
+	if (pendingOriginal.length > 0 && pendingModified.length > 0) {
 		result.push('<<<<<<< HEAD');
-		result.push(...conflictBlock.original);
+		result.push(...pendingOriginal);
 		result.push('=======');
-		result.push(...conflictBlock.modified);
+		result.push(...pendingModified);
 		result.push('>>>>>>>');
+	} else if (pendingOriginal.length > 0) {
+		result.push(...pendingOriginal);
+	} else if (pendingModified.length > 0) {
+		result.push(...pendingModified);
 	}
 
 	return result.join('\n');
 }
+
 
 interface hackmdPluginSettings {
 	apiToken: string;
