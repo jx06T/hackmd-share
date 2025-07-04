@@ -68,7 +68,7 @@ interface hackmdPluginSettings {
 }
 const DEFAULT_SETTINGS: hackmdPluginSettings = {
 	apiToken: 'None',
-	commentPermission: 'guest',
+	commentPermission: 'everyone',
 	readPermission: 'guest',
 }
 
@@ -479,11 +479,11 @@ class SettingTab extends PluginSettingTab {
 					.addOptions({
 						'disabled': '關閉',
 						'forbidden': '禁用',
-						'owner': '僅擁有者',
-						'signed_in': '登入用戶',
-						'guest': '訪客'
+						'owners': '僅擁有者',
+						'signed_in_users': '登入用戶',
+						'everyone': '訪客'
 					})
-					.setValue(this.plugin.settings.commentPermission || 'guest') // 設定預設值
+					.setValue(this.plugin.settings.commentPermission || 'everyone') // 設定預設值
 					.onChange(async (value) => {
 						this.plugin.settings.commentPermission = value; // 更新選項值
 						await this.plugin.saveSettings(); // 儲存設定
@@ -499,10 +499,11 @@ class SettingTab extends PluginSettingTab {
 						'signed_in': '登入用戶',
 						'guest': '訪客'
 					})
-					.setValue(this.plugin.settings.commentPermission || 'guest') // 設定預設值
+					.setValue(this.plugin.settings.readPermission || 'guest') 
 					.onChange(async (value) => {
-						this.plugin.settings.commentPermission = value; // 更新選項值
-						await this.plugin.saveSettings(); // 儲存設定
-					}));
+						this.plugin.settings.readPermission = value; 
+						await this.plugin.saveSettings();
+					})
+			);
 	}
 }

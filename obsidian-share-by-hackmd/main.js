@@ -32,6 +32,7 @@ var import_obsidian2 = require("obsidian");
 // sharer.ts
 var import_obsidian = require("obsidian");
 var shareNote = (key, content, permission) => {
+  console.log(permission);
   const data = JSON.stringify({
     "content": content,
     "writePermission": permission.writePermission,
@@ -675,7 +676,7 @@ function generateMergeConflictFile(text1, text2) {
 }
 var DEFAULT_SETTINGS = {
   apiToken: "None",
-  commentPermission: "guest",
+  commentPermission: "everyone",
   readPermission: "guest"
 };
 var hackmdPlugin = class extends import_obsidian2.Plugin {
@@ -953,20 +954,22 @@ var SettingTab = class extends import_obsidian2.PluginSettingTab {
     new import_obsidian2.Setting(containerEl).setName("commentPermission").setDesc("\u8A55\u8AD6\u8A2D\u5B9A").addDropdown((dropdown) => dropdown.addOptions({
       "disabled": "\u95DC\u9589",
       "forbidden": "\u7981\u7528",
-      "owner": "\u50C5\u64C1\u6709\u8005",
-      "signed_in": "\u767B\u5165\u7528\u6236",
-      "guest": "\u8A2A\u5BA2"
-    }).setValue(this.plugin.settings.commentPermission || "guest").onChange(async (value) => {
+      "owners": "\u50C5\u64C1\u6709\u8005",
+      "signed_in_users": "\u767B\u5165\u7528\u6236",
+      "everyone": "\u8A2A\u5BA2"
+    }).setValue(this.plugin.settings.commentPermission || "everyone").onChange(async (value) => {
       this.plugin.settings.commentPermission = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian2.Setting(containerEl).setName("readPermission").setDesc("\u6AA2\u8996\u8A2D\u5B9A").addDropdown((dropdown) => dropdown.addOptions({
-      "owner": "\u50C5\u64C1\u6709\u8005",
-      "signed_in": "\u767B\u5165\u7528\u6236",
-      "guest": "\u8A2A\u5BA2"
-    }).setValue(this.plugin.settings.commentPermission || "guest").onChange(async (value) => {
-      this.plugin.settings.commentPermission = value;
-      await this.plugin.saveSettings();
-    }));
+    new import_obsidian2.Setting(containerEl).setName("readPermission").setDesc("\u6AA2\u8996\u8A2D\u5B9A").addDropdown(
+      (dropdown) => dropdown.addOptions({
+        "owner": "\u50C5\u64C1\u6709\u8005",
+        "signed_in": "\u767B\u5165\u7528\u6236",
+        "guest": "\u8A2A\u5BA2"
+      }).setValue(this.plugin.settings.readPermission || "guest").onChange(async (value) => {
+        this.plugin.settings.readPermission = value;
+        await this.plugin.saveSettings();
+      })
+    );
   }
 };

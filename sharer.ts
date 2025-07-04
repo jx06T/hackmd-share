@@ -1,6 +1,7 @@
 import { requestUrl, RequestUrlParam } from 'obsidian';
 
 export const shareNote = (key: string, content: string, permission: { writePermission: String, readPermission: String, commentPermission: String }) => {
+  console.log(permission)
   const data = JSON.stringify({
     "content": content,
     "writePermission": permission.writePermission,
