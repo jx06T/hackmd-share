@@ -12,6 +12,7 @@
 ## 安裝
 到 **Releases** 頁面下載壓縮包，解壓縮並放到 obsidian 的外掛資料夾
 重新載入外掛後填入自己的 **Hackmd api key** 即可使用
+(或是直接複製 `obsidian-share-by-hackmd` 這個資料夾，更新較及時)
 
 ## 螢幕截圖
 ### 透過命令使用插件
